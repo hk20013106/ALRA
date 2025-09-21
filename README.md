@@ -53,24 +53,17 @@ completed_matrix <- result[[3]]
 
 ## Seurat Integration Example with pbmc3k
 
-This example demonstrates how to load a standard dataset, perform ALRA imputation, and visualize the results within a Seurat workflow. The code will:
-1.  Load the `pbmc3k` dataset.
-2.  Perform standard analysis (PCA, clustering, UMAP) on the original data.
-3.  Run ALRA and perform the same analysis on the imputed data.
-4.  Generate side-by-side `FeaturePlots` to compare marker gene expression.
+This example demonstrates a full workflow: loading the `pbmc3k` dataset, running a standard Seurat analysis, performing ALRA imputation, and visualizing the results side-by-side.
 
-```r
-# Full script available in readme_example.R
-# ... (code for loading data and running ALRA) ...
-```
+The complete, runnable code for this analysis is available in the `full_analysis_example.R` script.
 
 ### Visual Comparison of Original vs. ALRA Imputed Data
 
-After running the analysis, we can see that ALRA successfully increases the detection of key marker genes, making cell type identification clearer. The UMAP structures remain largely consistent, but the expression patterns within them are enhanced.
+After running the analysis, we can generate `FeaturePlots` to compare the expression of key marker genes on the UMAP projections derived from both the original and the ALRA-imputed data. The figure below shows that ALRA effectively enhances the expression signal of marker genes, making cell type-specific patterns more distinct.
 
-![Comparison of Original and ALRA Imputed Data](alra_comparison_plot.png)
+![Comparison of Original and ALRA Imputed Data](alra_marker_comparison.png)
 
-*Figure: Side-by-side comparison of clustering and marker gene expression on the original UMAP (left column of each pair) and the ALRA-based UMAP (right column of each pair). ALRA enhances the signal for markers like MS4A1 (B cells) and GNLY (NK cells), leading to clearer expression patterns.*
+*Figure: Feature plots of canonical marker genes before (top row, RNA assay) and after (bottom row, ALRA assay) imputation. The UMAP for each set was calculated independently. ALRA clarifies the expression patterns for markers like MS4A1 (B cells) and GNLY (NK cells), which are sparse in the original data.*
 
 
 ## Testing and Reproducibility
