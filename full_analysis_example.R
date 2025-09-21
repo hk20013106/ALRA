@@ -18,7 +18,7 @@ library(ggplot2)
 
 # 2. Load and prepare pbmc3k dataset
 if (!"pbmc3k" %in% installed.packages()) {
-  InstallData("pbmc3k")
+    InstallData("pbmc3k")
 }
 data("pbmc3k")
 pbmc3k <- UpdateSeuratObject(pbmc3k)
@@ -59,33 +59,42 @@ pbmc3k <- RunUMAP(pbmc3k, reduction = "pca.alra", dims = 1:10, verbose = FALSE, 
 
 cat("Analysis on ALRA-imputed data complete.\n")
 
-# 6. Generate and save comparison plots
+# 6. Generate and save side-by-side comparison plots for each marker
 markers_to_plot <- c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP", "CD8A")
 
-# Plot RNA
-p_rna <- FeaturePlot(
-  pbmc3k,
-  features = markers_to_plot,
-  reduction = "umap.rna",
-  order = TRUE,
-  combine = FALSE
-)
-p_rna <- lapply(p_rna, function(p) p + NoLegend() + NoAxes())
-plot_rna_wrapped <- wrap_plots(p_rna, ncol = 3) + plot_annotation(title = "Original Data (RNA Assay)")
+# Create a list to hold the plot pairs
+plot_pairs <- list()
 
-# Plot ALRA
-p_alra <- FeaturePlot(
-  pbmc3k,
-  features = markers_to_plot,
-  reduction = "umap.alra",
-  order = TRUE,
-  combine = FALSE
-)
-p_alra <- lapply(p_alra, function(p) p + NoLegend() + NoAxes())
-plot_alra_wrapped <- wrap_plots(p_alra, ncol = 3) + plot_annotation(title = "Imputed Data (ALRA Assay)")
+for (gene in markers_to_plot) {
+  # Plot for original data
+  p_rna <- FeaturePlot(
+    pbmc3k,
+    features = gene,
+    reduction = "umap.rna",
+    order = TRUE
+  ) + 
+  NoLegend() + 
+  NoAxes() +
+  ggtitle(paste(gene, "(Original)"))
 
-# Combine and save
-combined_figure <- plot_rna_wrapped / plot_alra_wrapped
-ggsave("alra_marker_comparison.png", plot = combined_figure, width = 12, height = 8, dpi = 300)
+  # Plot for ALRA data
+  p_alra <- FeaturePlot(
+    pbmc3k,
+    features = gene,
+    reduction = "umap.alra",
+    order = TRUE
+  ) + 
+  NoAxes() +
+  ggtitle(paste(gene, "(ALRA)"))
+  # Set default assay to alra for this plot
+  p_alra$data$alra <- GetAssayData(pbmc3k, assay = "alra", layer = "data")[gene, rownames(p_alra$data)]
+  
+  # Combine the pair side-by-side
+  plot_pairs[[gene]] <- p_rna | p_alra
+}
+
+# Arrange all pairs in a single column and save
+combined_figure <- wrap_plots(plot_pairs, ncol = 1)
+ggsave("alra_marker_comparison.png", plot = combined_figure, width = 8, height = 32, dpi = 300, limitsize = FALSE)
 
 cat("Comparison plot saved to alra_marker_comparison.png\n")
