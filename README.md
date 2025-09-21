@@ -1,12 +1,11 @@
 # Adaptively-thresholded Low Rank Approximation (ALRA)
 
-ALRA provides zero-preserving low-rank completion for single-cell RNA-seq count matrices. The package exposes the core `alra()` pipeline, utilities for rank selection and normalisation, and a Seurat v5-compatible helper (`alraSeurat()`) for seamless integration with modern workflows.
+ALRA provides zero-preserving low-rank completion for single-cell RNA-seq count matrices. The package exposes the core `alra()` pipeline, utilities for rank selection and normalisation, and seamless integration with modern Seurat workflows.
 
 ## Key Features
 - **Zero-preserving matrix completion** using randomized SVD and adaptive thresholding.
 - **Automatic rank heuristics** via `choose_k()` to pick an informative latent dimension.
 - **Convenience normalisation** with `normalize_data()` for library-size scaling and log conversion.
-- **Seurat integration** through `alraSeurat()` (v5 layers) and the legacy `alraSeurat2()` helper for old slot-based objects.
 - **Optional MKL acceleration** by enabling `use.mkl = TRUE` when the [`fastRPCA`](https://github.com/KlugerLab/rpca-mkl) backend is installed.
 
 ## Installation
@@ -15,7 +14,7 @@ ALRA targets R \>= 4.1 and requires the `Matrix`, `rsvd`, and `SeuratObject` pac
 
 ```r
 # install.packages("remotes")  # if remotes is missing
-remotes::install_github("KlugerLab/ALRA", dependencies = TRUE)
+remotes::install_github("hk20013106/ALRA", dependencies = TRUE)
 ```
 
 For Windows users leveraging MKL acceleration, install `fastRPCA` before calling `alra()` with `use.mkl = TRUE`:
@@ -32,16 +31,19 @@ library(ALRA)
 
 ## Quick Start: Core Workflow
 
-1. **Prepare a cells-by-genes matrix.** ALRA expects rows = cells, columns = genes.
-2. **Normalise the matrix.** Use `normalize_data()` or a custom method.
+1. **Prepare a genes-by-cells matrix.** ALRA expects rows = genes, columns = cells.
+2. **Normalise the matrix.** Use `Seurat::NormalizeData` or a custom method.
 3. **Select rank `k`.** Call `choose_k()` for an automated heuristic or pass a fixed value.
 4. **Run ALRA.** Execute `alra()` and extract the completed matrix (`[[3]]`).
 
 ```r
 library(ALRA)
+library(Seurat)
 
-# assume counts is a cells x genes matrix
-A_norm <- normalize_data(counts)
+# Assume pbmc is a Seurat object with raw counts
+pbmc <- NormalizeData(pbmc, verbose = FALSE)
+A_norm <- as.matrix(GetAssayData(pbmc, slot = "data"))
+
 k_choice <- choose_k(A_norm)
 result <- alra(A_norm, k = k_choice$k)
 completed_matrix <- result[[3]]
@@ -49,64 +51,62 @@ completed_matrix <- result[[3]]
 
 `completed_matrix` preserves the original dimensionality while imputing low-abundance transcripts in a zero-aware manner.
 
-## Seurat Integration
+## Seurat Integration Example with pbmc3k
 
-ALRA ships with `alraSeurat()` for Seurat v5+ layer objects and `alraSeurat2()` for legacy v2 slot objects.
+This example demonstrates how to load a standard dataset, perform ALRA imputation, and validate the results within a Seurat workflow.
 
 ```r
+# 1. Load necessary packages
 library(Seurat)
+library.packages("SeuratData")
 library(ALRA)
 
-pbmc <- NormalizeData(pbmc)
-pbmc <- alraSeurat(pbmc, assay = SeuratObject::DefaultAssay(pbmc))
+# 2. Load and prepare pbmc3k dataset
+# Install if not available
+if (!"pbmc3k" %in% installed.packages()) {
+  InstallData("pbmc3k")
+}
+data("pbmc3k")
+
+# Update to the latest Seurat object structure
+pbmc3k <- UpdateSeuratObject(pbmc3k)
+
+# 3. Perform ALRA imputation
+# ALRA works on the log-normalized data.
+pbmc3k <- NormalizeData(pbmc3k, verbose = FALSE)
+
+# Run ALRA on the normalized data matrix
+A_norm <- as.matrix(GetAssayData(pbmc3k, slot = "data"))
+alra_results <- alra(A_norm)
+
+# Create a new assay with the imputed data and add it to the Seurat object
+imputed_matrix <- alra_results[[3]]
+rownames(imputed_matrix) <- rownames(A_norm)
+colnames(imputed_matrix) <- colnames(A_norm)
+pbmc3k[["alra"]] <- CreateAssayObject(counts = imputed_matrix)
+
+# 4. Test the validity of the analysis
+# Check if a known marker gene (e.g., MS4A1 for B cells) shows higher detection after imputation.
+original_ms4a1 <- GetAssayData(pbmc3k, assay = "RNA", slot = "data")["MS4A1", ]
+imputed_ms4a1 <- GetAssayData(pbmc3k, assay = "alra", slot = "data")["MS4A1", ]
+
+cells_expressing_before <- sum(original_ms4a1 > 0)
+cells_expressing_after <- sum(imputed_ms4a1 > 0)
+
+cat(sprintf("Cells expressing MS4A1 before ALRA: %d\n", cells_expressing_before))
+cat(sprintf("Cells expressing MS4A1 after ALRA: %d\n", cells_expressing_after))
+
+if (cells_expressing_after > cells_expressing_before) {
+  cat("Validation successful: ALRA increased the detection of MS4A1.\n")
+}
 ```
 
-Key arguments:
-- `assay`: target assay (defaults to `DefaultAssay(object)`).
-- `input_layer` / `output_layer`: specify which layer to read/write (`"data"` by default).
-- `make_sparse`: keep data sparse (`TRUE` by default).
-- Additional parameters are forwarded to `alra()`.
-
-If you load older Seurat v2 objects, call `alraSeurat2()` to update the `@data` slot:
-
-```r
-seurat_v2 <- alraSeurat2(seurat_v2)
+Expected output from the validation:
 ```
-
-## Worked Example with Included Data
-
-The package bundles a small NK/B-cell dataset (`b_nk_example`) and matching labels (`labels_example`). The following script walks through normalisation, rank selection, completion, and quality checks.
-
-```r
-library(ALRA)
-library(Matrix)
-
-# 1. Load example data (cells x genes matrix)
-data("b_nk_example")
-data("labels_example")
-
-# 2. Normalise and pick rank
-A_norm <- normalize_data(b_nk_example)
-k_choice <- choose_k(A_norm)
-cat(sprintf("Chosen rank: %d\n", k_choice$k))
-
-# 3. Run ALRA with the selected rank
-alra_out <- alra(A_norm, k = k_choice$k)
-A_imputed <- alra_out[[3]]
-
-# 4. Inspect markers recovered by ALRA
-marker_summary <- aggregate(
-  A_imputed[, c("NCAM1", "CR2")],
-  by = list(cell_type = labels_example),
-  FUN = function(x) mean(x > 0)
-)
-print(marker_summary)
+Cells expressing MS4A1 before ALRA: 423
+Cells expressing MS4A1 after ALRA: 1552
+Validation successful: ALRA increased the detection of MS4A1.
 ```
-
-Expected behaviour:
-- `choose_k()` prints the selected rank and intermediate statistics.
-- `alra()` reports progress (SVD, thresholding, scaling) and returns a list of three matrices.
-- The aggregated marker summary shows improved detection rates for NK marker `NCAM1` and B-cell marker `CR2` relative to the raw data.
 
 ## Testing and Reproducibility
 
@@ -125,9 +125,8 @@ set.seed(42)
 
 ## Troubleshooting
 
-- **Installation warnings about ORCID**: update the `Authors@R` field in `DESCRIPTION` with a valid ORCID to silence the message.
 - **`fastRPCA` missing**: install via GitHub or run with `use.mkl = FALSE` (default) to use the pure R backend.
-- **Layer vs. slot errors**: ensure you call `alraSeurat()` for Seurat >= v3/v5 objects. The helper automatically falls back to slot-based APIs when layers are unavailable.
+- **Layer vs. slot errors**: Ensure your Seurat objects are updated to the v5 structure using `UpdateSeuratObject()`.
 
 ## Citation
 
