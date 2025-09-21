@@ -53,60 +53,25 @@ completed_matrix <- result[[3]]
 
 ## Seurat Integration Example with pbmc3k
 
-This example demonstrates how to load a standard dataset, perform ALRA imputation, and validate the results within a Seurat workflow.
+This example demonstrates how to load a standard dataset, perform ALRA imputation, and visualize the results within a Seurat workflow. The code will:
+1.  Load the `pbmc3k` dataset.
+2.  Perform standard analysis (PCA, clustering, UMAP) on the original data.
+3.  Run ALRA and perform the same analysis on the imputed data.
+4.  Generate side-by-side `FeaturePlots` to compare marker gene expression.
 
 ```r
-# 1. Load necessary packages
-library(Seurat)
-library.packages("SeuratData")
-library(ALRA)
-
-# 2. Load and prepare pbmc3k dataset
-# Install if not available
-if (!"pbmc3k" %in% installed.packages()) {
-  InstallData("pbmc3k")
-}
-data("pbmc3k")
-
-# Update to the latest Seurat object structure
-pbmc3k <- UpdateSeuratObject(pbmc3k)
-
-# 3. Perform ALRA imputation
-# ALRA works on the log-normalized data.
-pbmc3k <- NormalizeData(pbmc3k, verbose = FALSE)
-
-# Run ALRA on the normalized data matrix
-A_norm <- as.matrix(GetAssayData(pbmc3k, slot = "data"))
-alra_results <- alra(A_norm)
-
-# Create a new assay with the imputed data and add it to the Seurat object
-imputed_matrix <- alra_results[[3]]
-rownames(imputed_matrix) <- rownames(A_norm)
-colnames(imputed_matrix) <- colnames(A_norm)
-pbmc3k[["alra"]] <- CreateAssayObject(counts = imputed_matrix)
-
-# 4. Test the validity of the analysis
-# Check if a known marker gene (e.g., MS4A1 for B cells) shows higher detection after imputation.
-original_ms4a1 <- GetAssayData(pbmc3k, assay = "RNA", slot = "data")["MS4A1", ]
-imputed_ms4a1 <- GetAssayData(pbmc3k, assay = "alra", slot = "data")["MS4A1", ]
-
-cells_expressing_before <- sum(original_ms4a1 > 0)
-cells_expressing_after <- sum(imputed_ms4a1 > 0)
-
-cat(sprintf("Cells expressing MS4A1 before ALRA: %d\n", cells_expressing_before))
-cat(sprintf("Cells expressing MS4A1 after ALRA: %d\n", cells_expressing_after))
-
-if (cells_expressing_after > cells_expressing_before) {
-  cat("Validation successful: ALRA increased the detection of MS4A1.\n")
-}
+# Full script available in readme_example.R
+# ... (code for loading data and running ALRA) ...
 ```
 
-Expected output from the validation:
-```
-Cells expressing MS4A1 before ALRA: 423
-Cells expressing MS4A1 after ALRA: 1552
-Validation successful: ALRA increased the detection of MS4A1.
-```
+### Visual Comparison of Original vs. ALRA Imputed Data
+
+After running the analysis, we can see that ALRA successfully increases the detection of key marker genes, making cell type identification clearer. The UMAP structures remain largely consistent, but the expression patterns within them are enhanced.
+
+![Comparison of Original and ALRA Imputed Data](alra_comparison_plot.png)
+
+*Figure: Side-by-side comparison of clustering and marker gene expression on the original UMAP (left column of each pair) and the ALRA-based UMAP (right column of each pair). ALRA enhances the signal for markers like MS4A1 (B cells) and GNLY (NK cells), leading to clearer expression patterns.*
+
 
 ## Testing and Reproducibility
 
