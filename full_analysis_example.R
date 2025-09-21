@@ -47,54 +47,44 @@ pbmc3k <- RunUMAP(pbmc3k, dims = 1:10, verbose = FALSE, reduction.name = "umap.r
 
 cat("Analysis on original data complete.\n")
 
-# 5. Standard analysis on ALRA-imputed data
-DefaultAssay(pbmc3k) <- "alra"
-# The data is already imputed and normalized. We scale all genes.
-all.genes <- rownames(pbmc3k)
-pbmc3k <- ScaleData(pbmc3k, features = all.genes, verbose = FALSE)
-pbmc3k <- RunPCA(pbmc3k, features = all.genes, verbose = FALSE, reduction.name = "pca.alra")
-pbmc3k <- FindNeighbors(pbmc3k, dims = 1:10, reduction = "pca.alra", verbose = FALSE)
-pbmc3k <- FindClusters(pbmc3k, resolution = 0.5, verbose = FALSE, cluster.name = "alra_clusters")
-pbmc3k <- RunUMAP(pbmc3k, reduction = "pca.alra", dims = 1:10, verbose = FALSE, reduction.name = "umap.alra")
-
-cat("Analysis on ALRA-imputed data complete.\n")
-
-# 6. Generate and save side-by-side comparison plots for each marker
+# 5. Generate and save side-by-side comparison plots for each marker
+# We will visualize the expression on the UMAP generated from the original data.
 markers_to_plot <- c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP", "CD8A")
 
 # Create a list to hold the plot pairs
 plot_pairs <- list()
 
 for (gene in markers_to_plot) {
-  # Plot for original data
-  p_rna <- FeaturePlot(
-    pbmc3k,
-    features = gene,
-    reduction = "umap.rna",
-    order = TRUE
-  ) + 
-  NoLegend() + 
-  NoAxes() +
-  ggtitle(paste(gene, "(Original)"))
+    # Plot for original data
+    p_rna <- FeaturePlot(
+        pbmc3k,
+        features = gene,
+        reduction = "umap.rna",
+        order = TRUE
+    ) +
+        NoLegend() +
+        NoAxes() +
+        ggtitle(paste(gene, "(Original)"))
 
-  # Plot for ALRA data
-  p_alra <- FeaturePlot(
-    pbmc3k,
-    features = gene,
-    reduction = "umap.alra",
-    order = TRUE
-  ) + 
-  NoAxes() +
-  ggtitle(paste(gene, "(ALRA)"))
-  # Set default assay to alra for this plot
-  p_alra$data$alra <- GetAssayData(pbmc3k, assay = "alra", layer = "data")[gene, rownames(p_alra$data)]
-  
-  # Combine the pair side-by-side
-  plot_pairs[[gene]] <- p_rna | p_alra
+    # Plot for ALRA data on the same UMAP
+    p_alra <- FeaturePlot(
+        pbmc3k,
+        features = gene,
+        reduction = "umap.rna", # Use the same reduction
+        order = TRUE
+    ) +
+        NoAxes() +
+        ggtitle(paste(gene, "(ALRA)"))
+
+    # Manually set the data for the ALRA plot to the imputed values
+    p_alra$data[[4]] <- GetAssayData(pbmc3k, assay = "alra", layer = "data")[gene, rownames(p_alra$data)]
+
+    # Combine the pair side-by-side
+    plot_pairs[[gene]] <- p_rna | p_alra
 }
 
 # Arrange all pairs in a single column and save
-combined_figure <- wrap_plots(plot_pairs, ncol = 1)
-ggsave("alra_marker_comparison.png", plot = combined_figure, width = 8, height = 32, dpi = 300, limitsize = FALSE)
+combined_figure <- wrap_plots(plot_pairs, ncol = 2) # Changed to 2 columns for better layout
+ggsave("alra_marker_comparison.png", plot = combined_figure, width = 10, height = 20, dpi = 300, limitsize = FALSE)
 
 cat("Comparison plot saved to alra_marker_comparison.png\n")

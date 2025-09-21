@@ -51,25 +51,69 @@ completed_matrix <- result[[3]]
 
 `completed_matrix` preserves the original dimensionality while imputing low-abundance transcripts in a zero-aware manner.
 
-## Seurat Integration Example with pbmc3k
+## Examples
 
-This example demonstrates a full workflow: loading the `pbmc3k` dataset, running a standard Seurat analysis, performing ALRA imputation, and visualizing the results side-by-side.
+### Example 1: Basic Usage with B and NK cell data
+
+This example demonstrates the core functionality of ALRA on a small, built-in dataset of B and NK cells. We load the data, normalize it, choose a rank `k`, and then run ALRA. Finally, we compare the percentage of non-zero cells for marker genes `NCAM1` (for NK cells) and `CR2` (for B cells) before and after imputation.
+
+The complete, runnable code for this analysis is available in the `b_nk_example.R` script.
+
+**Code:**
+```r
+# b_nk_example.R
+
+# Load the ALRA package
+# Assuming it's installed, otherwise: remotes::install_github("hk20013106/ALRA")
+library(ALRA)
+
+# Load the example data included with the package
+data("b_nk_example")
+data("labels_example")
+
+# Normalize the data
+A_norm <- normalize_data(b_nk_example)
+
+# Choose the rank k
+k_choice <- choose_k(A_norm)
+
+# Run ALRA
+A_norm_completed <- alra(A_norm, k=k_choice$k)[[3]]
+
+# Print statistics before ALRA
+print("Before ALRA:")
+print(aggregate(A_norm[,c('NCAM1','CR2')], by=list(" "=labels_example),FUN=function(x) round(c(percent=100*sum(x>0)/length(x)),1)))
+
+# Print statistics after ALRA
+print("After ALRA:")
+print(aggregate(A_norm_completed[,c('NCAM1','CR2')], by=list(" "=labels_example),FUN=function(x) round(c(percent=100*sum(x>0)/length(x)),1)))
+```
+
+**Output:**
+```
+[1] "Before ALRA:"
+          NCAM1 CR2
+1 b_cells   0.0 0.9
+2 cd56_nk   3.9 0.0
+[1] "After ALRA:"
+          NCAM1  CR2
+1 b_cells   0.1 70.4
+2 cd56_nk  98.8  0.5
+```
+As shown in the output, ALRA significantly increases the expression of the correct marker in each cell type, clarifying their identity.
+
+### Example 2: Seurat Integration with pbmc3k
+
+This example demonstrates how to integrate ALRA into a standard Seurat workflow. We use the `pbmc3k` dataset, perform a standard analysis (normalization, scaling, PCA, UMAP) on the original data, and then use ALRA to impute the expression. The key point is that we use the **same UMAP** generated from the original data to visualize both the original and imputed expression, allowing for a direct comparison.
 
 The complete, runnable code for this analysis is available in the `full_analysis_example.R` script.
 
+**Code:**
 ```r
-#
-# This script demonstrates a full analysis pipeline comparing original data
-# with ALRA-imputed data using the pbmc3k dataset from SeuratData.
-#
+# full_analysis_example.R (Simplified)
 
 # 1. Load necessary packages
-if (!requireNamespace("Seurat", quietly = TRUE)) install.packages("Seurat")
-if (!requireNamespace("SeuratData", quietly = TRUE)) install.packages("SeuratData")
-if (!requireNamespace("patchwork", quietly = TRUE)) install.packages("patchwork")
-if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
-if (!requireNamespace("ALRA", quietly = TRUE)) remotes::install_github("hk20013106/ALRA")
-
+# ... (installation checks omitted for brevity)
 library(Seurat)
 library(SeuratData)
 library(ALRA)
@@ -77,26 +121,19 @@ library(patchwork)
 library(ggplot2)
 
 # 2. Load and prepare pbmc3k dataset
-if (!"pbmc3k" %in% installed.packages()) {
-  InstallData("pbmc3k")
-}
 data("pbmc3k")
 pbmc3k <- UpdateSeuratObject(pbmc3k)
 
 # 3. Perform ALRA imputation
 pbmc3k <- NormalizeData(pbmc3k, verbose = FALSE)
 A_norm <- as.matrix(GetAssayData(pbmc3k, layer = "data"))
-
-# Run ALRA and create a new assay
 alra_results <- alra(A_norm)
 imputed_matrix <- alra_results[[3]]
 rownames(imputed_matrix) <- rownames(A_norm)
 colnames(imputed_matrix) <- colnames(A_norm)
 pbmc3k[["alra"]] <- CreateAssayObject(counts = imputed_matrix)
 
-cat("ALRA imputation complete.\n")
-
-# 4. Standard analysis on original data
+# 4. Standard analysis on original data (to generate one UMAP)
 DefaultAssay(pbmc3k) <- "RNA"
 pbmc3k <- FindVariableFeatures(pbmc3k, verbose = FALSE)
 pbmc3k <- ScaleData(pbmc3k, verbose = FALSE)
@@ -105,68 +142,33 @@ pbmc3k <- FindNeighbors(pbmc3k, dims = 1:10, verbose = FALSE)
 pbmc3k <- FindClusters(pbmc3k, resolution = 0.5, verbose = FALSE)
 pbmc3k <- RunUMAP(pbmc3k, dims = 1:10, verbose = FALSE, reduction.name = "umap.rna")
 
-cat("Analysis on original data complete.\n")
-
-# 5. Standard analysis on ALRA-imputed data
-DefaultAssay(pbmc3k) <- "alra"
-# The data is already imputed and normalized. We scale all genes.
-all.genes <- rownames(pbmc3k)
-pbmc3k <- ScaleData(pbmc3k, features = all.genes, verbose = FALSE)
-pbmc3k <- RunPCA(pbmc3k, features = all.genes, verbose = FALSE, reduction.name = "pca.alra")
-pbmc3k <- FindNeighbors(pbmc3k, dims = 1:10, reduction = "pca.alra", verbose = FALSE)
-pbmc3k <- FindClusters(pbmc3k, resolution = 0.5, verbose = FALSE, cluster.name = "alra_clusters")
-pbmc3k <- RunUMAP(pbmc3k, reduction = "pca.alra", dims = 1:10, verbose = FALSE, reduction.name = "umap.alra")
-
-cat("Analysis on ALRA-imputed data complete.\n")
-
-# 6. Generate and save side-by-side comparison plots for each marker
+# 5. Generate and save side-by-side comparison plots
 markers_to_plot <- c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP", "CD8A")
-
-# Create a list to hold the plot pairs
 plot_pairs <- list()
 
 for (gene in markers_to_plot) {
-  # Plot for original data
-  p_rna <- FeaturePlot(
-    pbmc3k,
-    features = gene,
-    reduction = "umap.rna",
-    order = TRUE
-  ) + 
-  NoLegend() + 
-  NoAxes() +
-  ggtitle(paste(gene, "(Original)"))
-
-  # Plot for ALRA data
-  p_alra <- FeaturePlot(
-    pbmc3k,
-    features = gene,
-    reduction = "umap.alra",
-    order = TRUE
-  ) + 
-  NoAxes() +
-  ggtitle(paste(gene, "(ALRA)"))
-  # Set default assay to alra for this plot
-  p_alra$data$alra <- GetAssayData(pbmc3k, assay = "alra", layer = "data")[gene, rownames(p_alra$data)]
-  
-  # Combine the pair side-by-side
-  plot_pairs[[gene]] <- p_rna | p_alra
+    p_rna <- FeaturePlot(pbmc3k, features = gene, reduction = "umap.rna", order = TRUE) + NoLegend() + NoAxes() + ggtitle(paste(gene, "(Original)"))
+    
+    # Create a temporary Seurat object for ALRA visualization to avoid altering the main object's state
+    temp_seurat <- pbmc3k
+    DefaultAssay(temp_seurat) <- "alra"
+    
+    p_alra <- FeaturePlot(temp_seurat, features = gene, reduction = "umap.rna", order = TRUE) + NoAxes() + ggtitle(paste(gene, "(ALRA)"))
+    
+    plot_pairs[[gene]] <- p_rna | p_alra
 }
 
-# Arrange all pairs in a single column and save
-combined_figure <- wrap_plots(plot_pairs, ncol = 1)
-ggsave("alra_marker_comparison.png", plot = combined_figure, width = 8, height = 32, dpi = 300, limitsize = FALSE)
-
-cat("Comparison plot saved to alra_marker_comparison.png\n")
+combined_figure <- wrap_plots(plot_pairs, ncol = 2)
+ggsave("alra_marker_comparison.png", plot = combined_figure, width = 10, height = 20, dpi = 300, limitsize = FALSE)
 ```
 
-### Visual Comparison of Original vs. ALRA Imputed Data
+**Visual Comparison:**
 
-After running the analysis, we can generate `FeaturePlots` to compare the expression of key marker genes on the UMAP projections derived from both the original and the ALRA-imputed data. The figure below shows that ALRA effectively enhances the expression signal of marker genes, making cell type-specific patterns more distinct.
+The figure below shows `FeaturePlots` for several marker genes. Both original and ALRA-imputed expression values are visualized on the *same* UMAP projection, which was calculated from the original data. This clearly demonstrates how ALRA enhances the gene expression signals without altering the underlying cellular structure.
 
-![Comparison of Original and ALRA Imputed Data](alra_marker_comparison.png)
+![Comparison of Original and ALRA Imputed Data on the same UMAP](alra_marker_comparison.png)
 
-*Figure: Side-by-side FeaturePlots for canonical marker genes. The left plot of each pair shows expression on the UMAP from the original RNA data. The right plot shows expression on the UMAP from the ALRA-imputed data. ALRA clarifies the expression patterns for markers like MS4A1 (B cells) and GNLY (NK cells), which are sparse in the original data.*
+*Figure: Side-by-side FeaturePlots for canonical marker genes. Both plots in each pair use the same UMAP coordinates derived from the original RNA data. The left plot shows the original expression, and the right plot shows the ALRA-imputed expression. ALRA clarifies expression patterns, making cell populations more distinct.*
 
 
 ## Testing and Reproducibility
