@@ -19,4 +19,5 @@ This function performs ALRA on the "data" slot in a given Seurat object,
 does the neccessary pre- and post-processing to fit with the object, use
 the ALRA imputed data to REPLACE the "data" slot in the Seurat object, and
 returns that updated Seurat object.
+This helper is retained for legacy Seurat v2 objects; use \code{alraSeurat()} for Seurat v3 and later.
 }

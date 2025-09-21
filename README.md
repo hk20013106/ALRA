@@ -1,87 +1,138 @@
 # Adaptively-thresholded Low Rank Approximation (ALRA)
 
-## Introduction
-ALRA is a method for imputation of missing values in single cell RNA-sequencing data, described in the preprint, "Zero-preserving imputation of scRNA-seq data using low-rank approximation" available [here](https://www.biorxiv.org/content/early/2018/08/22/397588).  Given a scRNA-seq expression matrix, ALRA first computes its rank-k approximation using randomized SVD. Next, each row (gene) is thresholded by the magnitude of the most negative value of that gene. Finally, the matrix is rescaled. 
+ALRA provides zero-preserving low-rank completion for single-cell RNA-seq count matrices. The package exposes the core `alra()` pipeline, utilities for rank selection and normalisation, and a Seurat v5-compatible helper (`alraSeurat()`) for seamless integration with modern workflows.
 
-![ALRA schematic](https://gauss.math.yale.edu/~gcl22/alra_schematic2.png)
+## Key Features
+- **Zero-preserving matrix completion** using randomized SVD and adaptive thresholding.
+- **Automatic rank heuristics** via `choose_k()` to pick an informative latent dimension.
+- **Convenience normalisation** with `normalize_data()` for library-size scaling and log conversion.
+- **Seurat integration** through `alraSeurat()` (v5 layers) and the legacy `alraSeurat2()` helper for old slot-based objects.
+- **Optional MKL acceleration** by enabling `use.mkl = TRUE` when the [`fastRPCA`](https://github.com/KlugerLab/rpca-mkl) backend is installed.
 
-This repository contains codes for running ALRA in R. The only prerequisite for ALRA is installation of the randomized SVD package RSVD which can be installed as `install.packages('rsvd')`. 
+## Installation
 
-The functions now have a flag `use.mkl` for users who have installed [rpca-mkl](https://github.com/KlugerLab/rpca-mkl), which allows for dramatic speedups over the default rpca-based version. Note that rpca-mkl is still under development and is not on CRAN, so it is not a required package, but if users have already installed it then they can use it by setting this flag to True.
-
-## Install
-
-ALRA can be installed as follows:
+ALRA targets R \>= 4.1 and requires the `Matrix`, `rsvd`, and `SeuratObject` packages. To install the development version from this repository:
 
 ```r
-install.packages("devtools")
-devtools::install_github("KlugerLab/ALRA")
+# install.packages("remotes")  # if remotes is missing
+remotes::install_github("KlugerLab/ALRA", dependencies = TRUE)
 ```
 
-## Usage
-Please be sure to pass ALRA a matrix where the cells are rows and genes are columns. 
+For Windows users leveraging MKL acceleration, install `fastRPCA` before calling `alra()` with `use.mkl = TRUE`:
 
-ALRA can be used as follows:
+```r
+remotes::install_github("KlugerLab/rpca-mkl/fastRPCA")
+```
+
+After installation, load the package as usual:
+
+```r
+library(ALRA)
+```
+
+## Quick Start: Core Workflow
+
+1. **Prepare a cells-by-genes matrix.** ALRA expects rows = cells, columns = genes.
+2. **Normalise the matrix.** Use `normalize_data()` or a custom method.
+3. **Select rank `k`.** Call `choose_k()` for an automated heuristic or pass a fixed value.
+4. **Run ALRA.** Execute `alra()` and extract the completed matrix (`[[3]]`).
 
 ```r
 library(ALRA)
 
-# Let A_norm be a normalized expression matrix where cells are rows and genes are columns.
-# We use library and log normalization, but other approaches may also work well.
-result.completed <- alra(A_norm)
-A_norm_completed <- result.completed[[3]]
+# assume counts is a cells x genes matrix
+A_norm <- normalize_data(counts)
+k_choice <- choose_k(A_norm)
+result <- alra(A_norm, k = k_choice$k)
+completed_matrix <- result[[3]]
 ```
 
-## Example
+`completed_matrix` preserves the original dimensionality while imputing low-abundance transcripts in a zero-aware manner.
+
+## Seurat Integration
+
+ALRA ships with `alraSeurat()` for Seurat v5+ layer objects and `alraSeurat2()` for legacy v2 slot objects.
+
+```r
+library(Seurat)
+library(ALRA)
+
+pbmc <- NormalizeData(pbmc)
+pbmc <- alraSeurat(pbmc, assay = SeuratObject::DefaultAssay(pbmc))
+```
+
+Key arguments:
+- `assay`: target assay (defaults to `DefaultAssay(object)`).
+- `input_layer` / `output_layer`: specify which layer to read/write (`"data"` by default).
+- `make_sparse`: keep data sparse (`TRUE` by default).
+- Additional parameters are forwarded to `alra()`.
+
+If you load older Seurat v2 objects, call `alraSeurat2()` to update the `@data` slot:
+
+```r
+seurat_v2 <- alraSeurat2(seurat_v2)
+```
+
+## Worked Example with Included Data
+
+The package bundles a small NK/B-cell dataset (`b_nk_example`) and matching labels (`labels_example`). The following script walks through normalisation, rank selection, completion, and quality checks.
 
 ```r
 library(ALRA)
+library(Matrix)
 
+# 1. Load example data (cells x genes matrix)
 data("b_nk_example")
 data("labels_example")
-```
 
-Library and log normalize the data
-```r
+# 2. Normalise and pick rank
 A_norm <- normalize_data(b_nk_example)
-```
-
-Choose k. 
-```r
 k_choice <- choose_k(A_norm)
+cat(sprintf("Chosen rank: %d\n", k_choice$k))
+
+# 3. Run ALRA with the selected rank
+alra_out <- alra(A_norm, k = k_choice$k)
+A_imputed <- alra_out[[3]]
+
+# 4. Inspect markers recovered by ALRA
+marker_summary <- aggregate(
+  A_imputed[, c("NCAM1", "CR2")],
+  by = list(cell_type = labels_example),
+  FUN = function(x) mean(x > 0)
+)
+print(marker_summary)
 ```
 
-For the results in the paper, automatically chosen k worked quite well, but in
-some cases you might want to take a closer look, as we do here. The k is
-chosen based on the spacings between the singular values, as it can be quite
-hard to identify the ``beginning of noise'' from just looking at the spectrum
-itself.
+Expected behaviour:
+- `choose_k()` prints the selected rank and intermediate statistics.
+- `alra()` reports progress (SVD, thresholding, scaling) and returns a list of three matrices.
+- The aggregated marker summary shows improved detection rates for NK marker `NCAM1` and B-cell marker `CR2` relative to the raw data.
+
+## Testing and Reproducibility
+
+Developers can run the included unit tests (requires `pkgload`, `testthat`, `Seurat`, and `SeuratObject`):
 
 ```r
-library(ggplot2)
-library(gridExtra)
-df <- data.frame(x=1:100,y=k_choice$d)
-g1<-ggplot(df,aes(x=x,y=y),) + geom_point(size=1)  + geom_line(size=0.5)+ geom_vline(xintercept=k_choice$k)   + theme( axis.title.x=element_blank() ) + scale_x_continuous(breaks=seq(10,100,10)) + ylab('s_i') + ggtitle('Singular values')
-df <- data.frame(x=2:100,y=diff(k_choice$d))[3:99,]
-g2<-ggplot(df,aes(x=x,y=y),) + geom_point(size=1)  + geom_line(size=0.5)+ geom_vline(xintercept=k_choice$k+1)   + theme(axis.title.x=element_blank() ) + scale_x_continuous(breaks=seq(10,100,10)) + ylab('s_{i} - s_{i-1}') + ggtitle('Singular value spacings')
-grid.arrange(g1,g2,nrow=1)
-
-A_norm_completed <- alra(A_norm,k=k_choice$k)[[3]]
+pkgload::load_all(export_all = FALSE, helpers = FALSE, quiet = TRUE)
+testthat::test_dir("tests/testthat", reporter = "summary")
 ```
 
-Check the completion. Note that the results improve when using the entire dataset (see the ALRA-paper repo for those codes), as opposed to this subset.
-
-* NCAM1 should be expressed in all NK cells, but is only expressed in 4% of of NK cells in the original data.  
-* CR2 should be expressed in all B cells, but is only expressed in 1% of of B cells in the original data.  
+Set a random seed before calling `alra()` to mirror published results, as the randomized SVD initialisation introduces stochasticity:
 
 ```r
-print(aggregate(A_norm[,c('NCAM1','CR2')], by=list(" "=labels_example),FUN=function(x) round(c(percent=100*sum(x>0)/length(x)),1)))
-print(aggregate(A_norm_completed[,c('NCAM1','CR2')], by=list(" "=labels_example),FUN=function(x) round(c(percent=100*sum(x>0)/length(x)),1)))
+set.seed(42)
 ```
 
-## More info
+## Troubleshooting
 
-ALRA is integrated into [Seurat v3.0](https://github.com/satijalab/seurat/tree/release/3.0) (currently at pre-release stage) as function `RunALRA()`. But if you use Seurat v2, we provide a simple function to perform ALRA on a Seurat v2 object in `alraSeurat2.R`.
+- **Installation warnings about ORCID**: update the `Authors@R` field in `DESCRIPTION` with a valid ORCID to silence the message.
+- **`fastRPCA` missing**: install via GitHub or run with `use.mkl = FALSE` (default) to use the pure R backend.
+- **Layer vs. slot errors**: ensure you call `alraSeurat()` for Seurat >= v3/v5 objects. The helper automatically falls back to slot-based APIs when layers are unavailable.
 
-ALRA is supported for OS X, Linux, and Windows. It has been tested on MacOS (Mojave, 10.14) and Ubuntu 16.04. Installation should not take longer than a minute or two.
+## Citation
 
+If you use ALRA in your research, please cite the accompanying preprint: *Zero-preserving imputation of scRNA-seq data using low-rank approximation* (Linderman et al., bioRxiv 2018).
+
+## License
+
+ALRA is distributed under the MIT license. See `LICENSE.txt` for details.

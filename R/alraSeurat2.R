@@ -10,11 +10,12 @@
 #' 
 #' @return an updated Seurat object with ALRA imputed data in the "data" slot
 #' @export
-alraSeurat2 <- function(obj, ...){
+alraSeurat2 <- function(obj, ...) {
+  warning('alraSeurat2() is retained for legacy Seurat v2 objects; use alraSeurat() for newer Seurat versions.', call. = FALSE)
   data_alra <- t(alra(t(as.matrix(obj@data)), ...)[[3]])
   colnames(data_alra) <- obj@cell.names
-  data_alra <- Matrix(data_alra, sparse = T)
+  data_alra <- Matrix::Matrix(data_alra, sparse = TRUE)
   obj@data <- data_alra
-  return(obj)
+  obj
 }
 

@@ -13,9 +13,12 @@ RoxygenNote: 7.2.2
 Depends:
     R (>= 2.10)
 Imports: 
-    rsvd
+    rsvd,
+    Matrix,
+    SeuratObject
 Suggests: 
     fastRPCA,
+    Seurat (>= 5.0.0),
     testthat (>= 3.0.0)
 LazyData: true
 LazyDataCompression: bzip2
